@@ -65,6 +65,21 @@ CREATE TABLE IF NOT EXISTS tasks (
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Notifications table
+CREATE TABLE IF NOT EXISTS notifications (
+    id CHAR(36) PRIMARY KEY,
+    user_id INT NOT NULL,
+    type ENUM('deadline', 'assignment', 'mention', 'invite') NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    metadata JSON DEFAULT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_notifications_user_created (user_id, created_at),
+    INDEX idx_notifications_user_read (user_id, is_read)
+);
+
 -- Activity log for analytics
 CREATE TABLE IF NOT EXISTS activity_log (
     id INT AUTO_INCREMENT PRIMARY KEY,

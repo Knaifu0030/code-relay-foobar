@@ -13,13 +13,13 @@ export default function Login() {
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
-    e.preventDefault();          // ✅ THIS is the key
+    e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
       await login(email, password);
-      navigate('/');
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err?.response?.data?.error || err?.data?.error || 'Login failed');
     } finally {
@@ -72,7 +72,7 @@ export default function Login() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="********"
                 required
               />
             </div>

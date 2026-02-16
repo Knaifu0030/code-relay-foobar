@@ -98,3 +98,41 @@ The client runs on **http://localhost:3000**
 | Backend | Node.js, Express, MySQL2, JSON Web Tokens |
 | Database | MySQL with relational schema |
 | Styling | Vanilla CSS with glassmorphism design |
+
+## Railway Deploy (Quick)
+
+### Backend service (recommended first)
+
+- Service root: `task-nexus/server`
+- Build command: `npm install`
+- Start command: `npm start`
+- Health check path: `/health`
+
+Set these env vars in Railway:
+
+```env
+DB_HOST=...
+DB_USER=...
+DB_PASSWORD=...
+DB_NAME=...
+PORT=5000
+JWT_SECRET=change_this_in_prod
+CLIENT_ORIGIN=https://your-frontend-domain.com
+```
+
+Notes:
+
+- `CLIENT_ORIGIN` supports comma-separated values for multiple frontends.
+- If `CLIENT_ORIGIN` is not set, CORS is permissive (useful for initial setup/testing).
+
+### Frontend service
+
+- Service root: `task-nexus/client`
+- Build command: `npm install && npm run build`
+- Start command: `npm run preview -- --host 0.0.0.0 --port $PORT`
+
+Set this env var:
+
+```env
+VITE_API_URL=https://your-backend-domain.up.railway.app/api
+```

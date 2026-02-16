@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { FolderKanban, Plus, Trash2, ChevronRight, ArrowLeft } from 'lucide-react';
+import { FolderKanban, Plus, Trash2, ArrowLeft, Users } from 'lucide-react';
+import WorkspaceMembersTab from '../modules/workspace/WorkspaceMembersTab';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || 'http://localhost:5000/api';
 
 export default function Projects() {
     const { workspaceId } = useParams();
     const navigate = useNavigate();
     const [workspace, setWorkspace] = useState(null);
     const [projects, setProjects] = useState([]);
+    const [activeTab, setActiveTab] = useState('projects');
     const [showForm, setShowForm] = useState(false);
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
@@ -71,43 +73,82 @@ export default function Projects() {
                         <ArrowLeft size={18} /> Back to Workspaces
                     </button>
                     <h2>{workspace?.name || 'Workspace'}</h2>
+                    <p className="text-muted">
+                        {activeTab === 'projects' ? 'Workspace Projects' : 'Workspace Settings - Members'}
+                    </p>
                 </div>
-                <button className="btn-primary" onClick={() => setShowForm(!showForm)}>
-                    <Plus size={18} /> New Project
-                </button>
+
+                <div className="header-actions">
+                    <div className="view-toggle">
+                        <button
+                            type="button"
+                            className={`toggle-btn ${activeTab === 'projects' ? 'active' : ''}`}
+                            onClick={() => {
+                                setActiveTab('projects');
+                                setShowForm(false);
+                            }}
+                        >
+                            <FolderKanban size={15} />
+                            Projects
+                        </button>
+                        <button
+                            type="button"
+                            className={`toggle-btn ${activeTab === 'members' ? 'active' : ''}`}
+                            onClick={() => {
+                                setActiveTab('members');
+                                setShowForm(false);
+                            }}
+                        >
+                            <Users size={15} />
+                            Members
+                        </button>
+                    </div>
+
+                    {activeTab === 'projects' && (
+                        <button className="btn-primary" onClick={() => setShowForm(!showForm)}>
+                            <Plus size={18} /> New Project
+                        </button>
+                    )}
+                </div>
             </div>
 
-            {showForm && (
-                <form onSubmit={handleCreate} className="create-form glass fade-in">
-                    <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name" required />
-                    <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" />
-                    <div className="form-actions">
-                        <button type="submit" className="btn-primary">Create</button>
-                        <button type="button" className="btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
+            {activeTab === 'projects' && (
+                <>
+                    {showForm && (
+                        <form onSubmit={handleCreate} className="create-form glass fade-in">
+                            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name" required />
+                            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" />
+                            <div className="form-actions">
+                                <button type="submit" className="btn-primary">Create</button>
+                                <button type="button" className="btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
+                            </div>
+                        </form>
+                    )}
+
+                    <div className="project-grid">
+                        {projects.map(proj => (
+                            <div key={proj.id} className="project-card glass" onClick={() => navigate(`/projects/${proj.id}`)} style={{ borderLeft: `4px solid ${proj.color}` }}>
+                                <div className="project-card-header">
+                                    <FolderKanban size={20} style={{ color: proj.color }} />
+                                    <button className="btn-icon-danger" onClick={(e) => { e.stopPropagation(); handleDelete(proj.id); }}>
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                                <h3>{proj.name}</h3>
+                                <p className="text-muted">{proj.description || 'No description'}</p>
+                                <div className="project-card-footer">
+                                    <div className="progress-bar">
+                                        <div className="progress-fill" style={{ width: `${proj.task_count ? (proj.completed_count / proj.task_count) * 100 : 0}%`, backgroundColor: proj.color }}></div>
+                                    </div>
+                                    <span className="text-muted text-sm">{proj.completed_count}/{proj.task_count} tasks</span>
+                                </div>
+                            </div>
+                        ))}
                     </div>
-                </form>
+                </>
             )}
 
-            <div className="project-grid">
-                {projects.map(proj => (
-                    <div key={proj.id} className="project-card glass" onClick={() => navigate(`/projects/${proj.id}`)} style={{ borderLeft: `4px solid ${proj.color}` }}>
-                        <div className="project-card-header">
-                            <FolderKanban size={20} style={{ color: proj.color }} />
-                            <button className="btn-icon-danger" onClick={(e) => { e.stopPropagation(); handleDelete(proj.id); }}>
-                                <Trash2 size={16} />
-                            </button>
-                        </div>
-                        <h3>{proj.name}</h3>
-                        <p className="text-muted">{proj.description || 'No description'}</p>
-                        <div className="project-card-footer">
-                            <div className="progress-bar">
-                                <div className="progress-fill" style={{ width: `${proj.task_count ? (proj.completed_count / proj.task_count) * 100 : 0}%`, backgroundColor: proj.color }}></div>
-                            </div>
-                            <span className="text-muted text-sm">{proj.completed_count}/{proj.task_count} tasks</span>
-                        </div>
-                    </div>
-                ))}
-            </div>
+            {activeTab === 'members' && <WorkspaceMembersTab workspaceId={workspaceId} workspaceRole={workspace?.role} />}
         </div>
     );
 }
