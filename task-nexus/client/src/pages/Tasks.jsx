@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Plus, Trash2, ArrowLeft, Calendar, Flag, Check, Clock, Eye, ListTodo } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || '/api';
 const STATUSES = ['todo', 'in_progress', 'review', 'done'];
 
 const statusLabels = { todo: 'To Do', in_progress: 'In Progress', review: 'Review', done: 'Done' };

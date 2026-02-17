@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || '/api';
 const TOKEN_KEY = 'nexus_token';
 
 const AuthContext = createContext(null);

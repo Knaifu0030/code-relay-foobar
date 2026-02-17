@@ -5,7 +5,7 @@ import { useAuth } from '../modules/context/AuthContext';
 import StatusPieChart from '../components/charts/StatusPieChart';
 import WeeklyLineChart from '../components/charts/WeeklyLineChart';
 
-const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || '/api';
 
 const MOCK_ANALYTICS = {
     statusDistribution: { todo: 4, in_progress: 6, completed: 12, overdue: 2 },

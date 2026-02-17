@@ -4,7 +4,7 @@ import axios from 'axios';
 import { FolderKanban, Plus, Trash2, ArrowLeft, Users } from 'lucide-react';
 import WorkspaceMembersTab from '../modules/workspace/WorkspaceMembersTab';
 
-const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || '/api';
 
 export default function Projects() {
     const { workspaceId } = useParams();

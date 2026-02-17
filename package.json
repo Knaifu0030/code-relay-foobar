@@ -1,0 +1,16 @@
+{
+  "name": "code-relay-foobar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Task Nexus - Monorepo root for Railway deployment",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "install:client": "cd task-nexus/client && npm install",
+    "install:server": "cd task-nexus/server && npm install",
+    "build:client": "cd task-nexus/client && npm run build",
+    "build": "npm run install:client && npm run install:server && npm run build:client",
+    "start": "cd task-nexus/server && node server.js"
+  }
+}

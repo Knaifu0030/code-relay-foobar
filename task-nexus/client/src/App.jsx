@@ -19,7 +19,7 @@ import Tasks from './pages/Tasks';
 import Landing from './pages/Landing';
 import './App.css';
 
-const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
+const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.API_URL || '/api').replace(/\/api\/?$/, '');
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();

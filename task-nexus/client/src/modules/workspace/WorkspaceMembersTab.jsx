@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { AlertCircle, CheckCircle2, Mail, Search, Shield, UserPlus, Users } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || '/api';
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 

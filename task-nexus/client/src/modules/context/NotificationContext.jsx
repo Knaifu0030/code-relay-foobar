@@ -12,7 +12,7 @@ import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import ToastNotification from '../../components/notifications/ToastNotification';
 
-const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.API_URL || '/api';
 const SOCKET_BASE = API_BASE.replace(/\/api\/?$/, '');
 const POLL_INTERVAL_MS = 15000;
 const MAX_NOTIFICATIONS = 80;

@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+const path = require("path");
 const mysql = require("mysql2");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
@@ -54,12 +55,44 @@ const io = new SocketIOServer(httpServer, {
 
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-key-123";
 
-const fluxNexusHandler = mysql.createConnection({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-});
+const DATABASE_URL = process.env.MYSQL_URL || process.env.DATABASE_URL;
+
+const resolvedDbConfig = DATABASE_URL
+  ? DATABASE_URL
+  : {
+      host: process.env.DB_HOST || process.env.MYSQLHOST || process.env.MYSQL_HOST || "localhost",
+      user: process.env.DB_USER || process.env.MYSQLUSER || process.env.MYSQL_USER || "root",
+      password: process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || process.env.MYSQL_PASSWORD || "",
+      database:
+        process.env.DB_NAME || process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || "task_nexus",
+      port: Number.parseInt(
+        process.env.DB_PORT || process.env.MYSQLPORT || process.env.MYSQL_PORT || "3306",
+        10
+      ),
+    };
+
+const fluxNexusHandler = mysql.createConnection(resolvedDbConfig);
+const NOTIFICATIONS_TABLE_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS notifications (
+    id CHAR(36) PRIMARY KEY,
+    user_id INT NOT NULL,
+    type ENUM('deadline', 'assignment', 'mention', 'invite') NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    metadata JSON DEFAULT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_notifications_user_created (user_id, created_at),
+    INDEX idx_notifications_user_read (user_id, is_read)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const ensureNotificationsTable = (callback = () => {}) => {
+  fluxNexusHandler.query(NOTIFICATIONS_TABLE_SCHEMA, (err) => {
+    callback(err || null);
+  });
+};
 
 fluxNexusHandler.connect((err) => {
   if (err) {
@@ -67,6 +100,13 @@ fluxNexusHandler.connect((err) => {
     return;
   }
   console.log("Successfully connected to taskNexus stability layer.");
+  ensureNotificationsTable((tableErr) => {
+    if (tableErr) {
+      console.error("Could not ensure notifications table:", tableErr.message);
+      return;
+    }
+    console.log("Notifications table is ready.");
+  });
 });
 
 const getUserIdFromToken = (req) => {
@@ -136,6 +176,31 @@ const normalizeNotificationRow = (row) => ({
   created_at: row.created_at,
 });
 
+const isMissingNotificationsTableError = (error) =>
+  Boolean(
+    error &&
+      error.code === "ER_NO_SUCH_TABLE" &&
+      typeof error.message === "string" &&
+      error.message.includes("notifications")
+  );
+
+const runWithNotificationsTableRecovery = (operation, callback, hasRetried = false) => {
+  operation((operationErr, ...result) => {
+    if (isMissingNotificationsTableError(operationErr) && !hasRetried) {
+      ensureNotificationsTable((tableErr) => {
+        if (tableErr) {
+          callback(tableErr);
+          return;
+        }
+        runWithNotificationsTableRecovery(operation, callback, true);
+      });
+      return;
+    }
+
+    callback(operationErr, ...result);
+  });
+};
+
 const emitNotificationToUser = (userId, notification) => {
   if (!userId || !notification) return;
   io.to(`user:${userId}`).emit("notification:new", notification);
@@ -172,64 +237,68 @@ const createNotificationRecord = (payload, callback = () => {}) => {
   };
   const metadataJson = JSON.stringify(metadata);
 
-  fluxNexusHandler.query(
-    `SELECT id
-     FROM notifications
-     WHERE user_id = ?
-       AND type = ?
-       AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.dedupeKey')) = ?
-     LIMIT 1`,
-    [userId, type, dedupeKey],
-    (existingErr, existingRows) => {
-      if (existingErr) {
-        callback(existingErr);
-        return;
-      }
-
-      if (existingRows && existingRows.length > 0) {
-        callback(null, null, false);
-        return;
-      }
-
-      const notificationId = randomUUID();
-
-      fluxNexusHandler.query(
-        `INSERT INTO notifications (id, user_id, type, title, message, metadata, is_read)
-         VALUES (?, ?, ?, ?, ?, ?, FALSE)`,
-        [notificationId, userId, type, title, message, metadataJson],
-        (insertErr) => {
-          if (insertErr) {
-            callback(insertErr);
-            return;
-          }
-
-          fluxNexusHandler.query(
-            `SELECT id, user_id, type, title, message, metadata, is_read, created_at
-             FROM notifications
-             WHERE id = ?
-             LIMIT 1`,
-            [notificationId],
-            (selectErr, selectRows) => {
-              if (selectErr) {
-                callback(selectErr);
-                return;
-              }
-
-              const createdNotification = selectRows?.[0]
-                ? normalizeNotificationRow(selectRows[0])
-                : null;
-
-              if (createdNotification) {
-                emitNotificationToUser(userId, createdNotification);
-              }
-
-              callback(null, createdNotification, true);
-            }
-          );
+  const executeNotificationInsertFlow = (done) => {
+    fluxNexusHandler.query(
+      `SELECT id
+       FROM notifications
+       WHERE user_id = ?
+         AND type = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.dedupeKey')) = ?
+       LIMIT 1`,
+      [userId, type, dedupeKey],
+      (existingErr, existingRows) => {
+        if (existingErr) {
+          done(existingErr);
+          return;
         }
-      );
-    }
-  );
+
+        if (existingRows && existingRows.length > 0) {
+          done(null, null, false);
+          return;
+        }
+
+        const notificationId = randomUUID();
+
+        fluxNexusHandler.query(
+          `INSERT INTO notifications (id, user_id, type, title, message, metadata, is_read)
+           VALUES (?, ?, ?, ?, ?, ?, FALSE)`,
+          [notificationId, userId, type, title, message, metadataJson],
+          (insertErr) => {
+            if (insertErr) {
+              done(insertErr);
+              return;
+            }
+
+            fluxNexusHandler.query(
+              `SELECT id, user_id, type, title, message, metadata, is_read, created_at
+               FROM notifications
+               WHERE id = ?
+               LIMIT 1`,
+              [notificationId],
+              (selectErr, selectRows) => {
+                if (selectErr) {
+                  done(selectErr);
+                  return;
+                }
+
+                const createdNotification = selectRows?.[0]
+                  ? normalizeNotificationRow(selectRows[0])
+                  : null;
+
+                if (createdNotification) {
+                  emitNotificationToUser(userId, createdNotification);
+                }
+
+                done(null, createdNotification, true);
+              }
+            );
+          }
+        );
+      }
+    );
+  };
+
+  runWithNotificationsTableRecovery(executeNotificationInsertFlow, callback);
 };
 
 const notifyTaskAssignment = ({ assigneeId, taskId, projectId, taskTitle, actorUserId }) => {
@@ -622,47 +691,61 @@ app.get("/api/notifications", authenticateToken, (req, res) => {
     : Math.max((Number.isInteger(requestedPage) ? requestedPage : 1) - 1, 0) * limit;
 
   createDeadlineNotificationsForUser(req.userId, () => {
-    fluxNexusHandler.query(
-      `SELECT id, user_id, type, title, message, metadata, is_read, created_at
-       FROM notifications
-       WHERE user_id = ?
-       ORDER BY created_at DESC
-       LIMIT ? OFFSET ?`,
-      [req.userId, limit, offset],
-      (listErr, listRows) => {
-        if (listErr) {
-          return res.status(500).json({ error: listErr.message });
-        }
-
+    runWithNotificationsTableRecovery(
+      (done) => {
         fluxNexusHandler.query(
-          "SELECT COUNT(*) AS total FROM notifications WHERE user_id = ?",
-          [req.userId],
-          (totalErr, totalRows) => {
-            if (totalErr) {
-              return res.status(500).json({ error: totalErr.message });
+          `SELECT id, user_id, type, title, message, metadata, is_read, created_at
+           FROM notifications
+           WHERE user_id = ?
+           ORDER BY created_at DESC
+           LIMIT ? OFFSET ?`,
+          [req.userId, limit, offset],
+          (listErr, listRows) => {
+            if (listErr) {
+              done(listErr);
+              return;
             }
 
             fluxNexusHandler.query(
-              "SELECT COUNT(*) AS unread FROM notifications WHERE user_id = ? AND is_read = FALSE",
+              "SELECT COUNT(*) AS total FROM notifications WHERE user_id = ?",
               [req.userId],
-              (unreadErr, unreadRows) => {
-                if (unreadErr) {
-                  return res.status(500).json({ error: unreadErr.message });
+              (totalErr, totalRows) => {
+                if (totalErr) {
+                  done(totalErr);
+                  return;
                 }
 
-                res.json({
-                  notifications: (listRows || []).map(normalizeNotificationRow),
-                  unreadCount: Number(unreadRows?.[0]?.unread || 0),
-                  pagination: {
-                    total: Number(totalRows?.[0]?.total || 0),
-                    limit,
-                    offset,
-                  },
-                });
+                fluxNexusHandler.query(
+                  "SELECT COUNT(*) AS unread FROM notifications WHERE user_id = ? AND is_read = FALSE",
+                  [req.userId],
+                  (unreadErr, unreadRows) => {
+                    if (unreadErr) {
+                      done(unreadErr);
+                      return;
+                    }
+
+                    done(null, {
+                      notifications: (listRows || []).map(normalizeNotificationRow),
+                      unreadCount: Number(unreadRows?.[0]?.unread || 0),
+                      pagination: {
+                        total: Number(totalRows?.[0]?.total || 0),
+                        limit,
+                        offset,
+                      },
+                    });
+                  }
+                );
               }
             );
           }
         );
+      },
+      (notificationErr, payload) => {
+        if (notificationErr) {
+          return res.status(500).json({ error: notificationErr.message });
+        }
+
+        return res.json(payload);
       }
     );
   });
@@ -694,7 +777,8 @@ app.post("/api/notifications", authenticateToken, (req, res) => {
     },
     (createErr, notification, created) => {
       if (createErr) {
-        return res.status(400).json({ error: createErr.message });
+        const statusCode = createErr.code ? 500 : 400;
+        return res.status(statusCode).json({ error: createErr.message });
       }
 
       if (!created) {
@@ -715,9 +799,16 @@ app.post("/api/notifications", authenticateToken, (req, res) => {
 });
 
 app.patch("/api/notifications/read-all", authenticateToken, (req, res) => {
-  fluxNexusHandler.query(
-    "UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND is_read = FALSE",
-    [req.userId],
+  runWithNotificationsTableRecovery(
+    (done) => {
+      fluxNexusHandler.query(
+        "UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND is_read = FALSE",
+        [req.userId],
+        (updateErr, updateResult) => {
+          done(updateErr, updateResult);
+        }
+      );
+    },
     (updateErr, updateResult) => {
       if (updateErr) {
         return res.status(500).json({ error: updateErr.message });
@@ -737,11 +828,18 @@ app.patch("/api/notifications/:id/read", authenticateToken, (req, res) => {
     return res.status(400).json({ error: "Notification id is required" });
   }
 
-  fluxNexusHandler.query(
-    `UPDATE notifications
-     SET is_read = TRUE
-     WHERE id = ? AND user_id = ?`,
-    [notificationId, req.userId],
+  runWithNotificationsTableRecovery(
+    (done) => {
+      fluxNexusHandler.query(
+        `UPDATE notifications
+         SET is_read = TRUE
+         WHERE id = ? AND user_id = ?`,
+        [notificationId, req.userId],
+        (updateErr, updateResult) => {
+          done(updateErr, updateResult);
+        }
+      );
+    },
     (updateErr, updateResult) => {
       if (updateErr) {
         return res.status(500).json({ error: updateErr.message });
@@ -1291,6 +1389,15 @@ io.on("connection", (socket) => {
   }
 
   socket.join(`user:${userId}`);
+});
+
+// Serve client static files in production
+const clientDistPath = path.join(__dirname, "..", "client", "dist");
+app.use(express.static(clientDistPath));
+
+// SPA catch-all: any non-API route serves the client index.html
+app.get("*", (req, res) => {
+  res.sendFile(path.join(clientDistPath, "index.html"));
 });
 
 const PORT = process.env.PORT || 5000;
